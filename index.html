@@ -151,6 +151,24 @@
             transition: background-color 0.1s;
         }
 
+        /* 遊戲開場圖片淡出容器 */
+        #intro-splash {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000;
+            z-index: 100;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            opacity: 1;
+            transition: opacity 1s ease-in-out;
+        }
+        #intro-splash img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
         /* 手機虛擬控制介面 */
         #mobile-controls {
             position: absolute;
@@ -242,6 +260,11 @@
         <button id="start-btn">點擊開始遊戲</button>
     </div>
 
+    <!-- 遊戲開場圖片 -->
+    <div id="intro-splash">
+        <img src="https://docs.google.com/drawings/d/e/2PACX-1vQsi0b19mvTQtGplu6oQKCwLfXbz1d_uYWZAdXJR5C-uRBCgRlefrRce3NiCd-mfpMVlSF2cXb79fnU/pub?w=960&h=720" alt="遊戲開場">
+    </div>
+
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
@@ -268,6 +291,7 @@
         let isPlaying = false;
         let isMobile = false;
         let joystickData = { x: 0, y: 0 };
+        let splashDone = false; // 追蹤是否已經播放過開場動畫
 
         // 音效系統變數
         let audioCtx;
@@ -356,14 +380,32 @@
             startBtn.addEventListener( 'click', function () {
                 initAudio(); 
                 if (isMobile) {
-                    isPlaying = true;
                     startScreen.style.display = 'none';
-                    hud.style.display = 'block';
-                    mobileControls.style.display = 'block';
-                    setupTouchControls();
-                    // 嘗試進入全螢幕以獲得最佳體驗
                     if (document.documentElement.requestFullscreen) {
                         document.documentElement.requestFullscreen().catch(()=>{});
+                    }
+                    
+                    if (!splashDone) {
+                        const splash = document.getElementById('intro-splash');
+                        splash.style.display = 'flex';
+                        setTimeout(() => {
+                            splash.style.opacity = '0';
+                            setTimeout(() => {
+                                splash.style.display = 'none';
+                                hud.style.display = 'block';
+                                mobileControls.style.display = 'block';
+                                setupTouchControls();
+                                isPlaying = true;
+                                splashDone = true;
+                                prevTime = performance.now();
+                            }, 1000); // 1秒淡出
+                        }, 3000); // 顯示3秒
+                    } else {
+                        hud.style.display = 'block';
+                        mobileControls.style.display = 'block';
+                        setupTouchControls();
+                        isPlaying = true;
+                        prevTime = performance.now();
                     }
                 } else {
                     controls.lock(); 
@@ -371,9 +413,26 @@
             } );
 
             controls.addEventListener( 'lock', function () {
-                isPlaying = true;
                 startScreen.style.display = 'none';
-                hud.style.display = 'block';
+                
+                if (!splashDone) {
+                    const splash = document.getElementById('intro-splash');
+                    splash.style.display = 'flex';
+                    setTimeout(() => {
+                        splash.style.opacity = '0';
+                        setTimeout(() => {
+                            splash.style.display = 'none';
+                            hud.style.display = 'block';
+                            isPlaying = true;
+                            splashDone = true;
+                            prevTime = performance.now();
+                        }, 1000); // 1秒淡出
+                    }, 3000); // 顯示3秒
+                } else {
+                    hud.style.display = 'block';
+                    isPlaying = true;
+                    prevTime = performance.now();
+                }
             } );
 
             controls.addEventListener( 'unlock', function () {
@@ -1000,50 +1059,55 @@
                 if (Math.abs(velocity.x) > 2 || Math.abs(velocity.z) > 2) {
                     playStepSound(time);
                 }
-            }
-
-            const playerPos = camera.position.clone();
-            playerPos.y = 0; 
-
-            for (let i = robots.length - 1; i >= 0; i--) {
-                const robot = robots[i];
                 
-                const targetLook = playerPos.clone();
-                targetLook.y = robot.position.y;
-                robot.lookAt(targetLook);
+                // 將機器人邏輯包進 isPlaying 判斷中，防止在開場圖片期間機器人繼續移動
+                const playerPos = camera.position.clone();
+                playerPos.y = 0; 
 
-                const equationPlane = robot.children.find(c => c.geometry && c.geometry.type === 'PlaneGeometry' && c.position.y > 3);
-                if(equationPlane) {
-                    equationPlane.lookAt(camera.position);
-                }
-
-                robot.translateZ(GAME_SPEED * delta);
-
-                const walkFreq = 5; 
-                const walkAmp = 0.6; 
-                robot.userData.walkPhase += delta * walkFreq;
-                robot.userData.legL.rotation.x = Math.sin(robot.userData.walkPhase) * walkAmp;
-                robot.userData.legR.rotation.x = Math.sin(robot.userData.walkPhase + Math.PI) * walkAmp;
-                robot.userData.armL.rotation.x = Math.sin(robot.userData.walkPhase + Math.PI) * walkAmp; 
-                robot.userData.armR.rotation.x = Math.sin(robot.userData.walkPhase) * walkAmp; 
-
-                const dist = robot.position.distanceTo(playerPos);
-                if (dist < 2.5) {
-                    playWrongSound(); 
-                    flashScreenRed();
-                    destroyRobot(robot);
-                    spawnRobot();
+                for (let i = robots.length - 1; i >= 0; i--) {
+                    const robot = robots[i];
                     
-                    // 被撞擊扣分並降級
-                    score = Math.max(0, score - 5);
-                    document.getElementById('score').innerText = score;
-                    checkWeaponUpgrade(); 
+                    const targetLook = playerPos.clone();
+                    targetLook.y = robot.position.y;
+                    robot.lookAt(targetLook);
+
+                    const equationPlane = robot.children.find(c => c.geometry && c.geometry.type === 'PlaneGeometry' && c.position.y > 3);
+                    if(equationPlane) {
+                        equationPlane.lookAt(camera.position);
+                    }
+
+                    robot.translateZ(GAME_SPEED * delta);
+
+                    const walkFreq = 5; 
+                    const walkAmp = 0.6; 
+                    robot.userData.walkPhase += delta * walkFreq;
+                    robot.userData.legL.rotation.x = Math.sin(robot.userData.walkPhase) * walkAmp;
+                    robot.userData.legR.rotation.x = Math.sin(robot.userData.walkPhase + Math.PI) * walkAmp;
+                    robot.userData.armL.rotation.x = Math.sin(robot.userData.walkPhase + Math.PI) * walkAmp; 
+                    robot.userData.armR.rotation.x = Math.sin(robot.userData.walkPhase) * walkAmp; 
+
+                    const dist = robot.position.distanceTo(playerPos);
+                    if (dist < 2.5) {
+                        playWrongSound(); 
+                        flashScreenRed();
+                        destroyRobot(robot);
+                        spawnRobot();
+                        
+                        // 被撞擊扣分並降級
+                        score = Math.max(0, score - 5);
+                        document.getElementById('score').innerText = score;
+                        checkWeaponUpgrade(); 
+                    }
                 }
-            }
+            } // 結束 if (isPlaying) 區塊
 
             prevTime = time;
             renderer.render( scene, camera );
         }
+
+        // 將遊戲啟動函數移至最後，確保 sentencePool 等所有變數皆已完成初始化
+        init();
+        animate();
     </script>
 </body>
 </html>
